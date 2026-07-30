@@ -306,7 +306,13 @@ impl TasksClient {
         url.push_str("/tasks/");
         let mut url = append_path_segment(&url, task_id)?;
         url.push_str("/move");
-        let mut req = self.http.post(&url).bearer_auth(token);
+        // Google rejects body-less POSTs with 411 Length Required; send an empty body.
+        let mut req = self
+            .http
+            .post(&url)
+            .bearer_auth(token)
+            .header(reqwest::header::CONTENT_LENGTH, "0")
+            .body("");
         if let Some(prev) = previous {
             req = req.query(&[("previous", prev)]);
         }

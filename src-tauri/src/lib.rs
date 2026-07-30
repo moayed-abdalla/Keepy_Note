@@ -601,15 +601,7 @@ async fn set_pin_mode(
                     match win.hwnd() {
                         Ok(hwnd) => {
                             if let Err(e) = desktop_embed::embed_window(hwnd.0 as isize) {
-                                let _ = win.set_always_on_top(true);
-                                let mut store = state.store.lock();
-                                if let Some(s) = store.stickies.iter_mut().find(|s| s.id == id) {
-                                    s.pin_mode = PinMode::AlwaysOnTop;
-                                    let _ = store.save(&state.store_path);
-                                }
-                                return Err(format!(
-                                    "Desktop embed failed, fell back to always-on-top: {e}"
-                                ));
+                                eprintln!("desktop mode apply failed: {e}");
                             }
                         }
                         Err(e) => return Err(e.to_string()),
@@ -617,8 +609,7 @@ async fn set_pin_mode(
                 }
                 #[cfg(not(windows))]
                 {
-                    let _ = win.set_always_on_top(true);
-                    return Err("Desktop embed is Windows-only".into());
+                    // Still a useful "not always on top" mode elsewhere.
                 }
             }
         }
@@ -693,6 +684,7 @@ fn open_sticky_window(app: &AppHandle, sticky: &StickyNoteState) -> Result<(), S
     let win = WebviewWindowBuilder::new(app, &label, url)
         .title(&sticky.title)
         .inner_size(sticky.width, sticky.height)
+        .min_inner_size(200.0, 160.0)
         .position(sticky.x, sticky.y)
         .decorations(false)
         .transparent(true)

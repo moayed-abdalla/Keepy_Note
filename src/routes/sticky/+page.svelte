@@ -110,10 +110,72 @@
     await invoke('unpin_sticky', { id });
   }
 
+  type ResizeDirection =
+    | 'East'
+    | 'North'
+    | 'NorthEast'
+    | 'NorthWest'
+    | 'South'
+    | 'SouthEast'
+    | 'SouthWest'
+    | 'West';
+
   async function startDrag(e: MouseEvent) {
     const t = e.target as HTMLElement;
-    if (t.closest('textarea, input, button, .color-pop, .item, .dnd-handle, .checklist')) return;
+    if (
+      t.closest(
+        'textarea, input, button, .color-pop, .item, .dnd-handle, .checklist, .resize-handle'
+      )
+    )
+      return;
     await getCurrentWindow().startDragging();
+  }
+
+  async function startResize(e: MouseEvent, direction: ResizeDirection) {
+    e.preventDefault();
+    e.stopPropagation();
+    await getCurrentWindow().startResizeDragging(direction);
+  }
+
+  /** Drag the sticky by the list name; click (no move) focuses to rename. */
+  function onTitleMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return;
+    const input = e.currentTarget as HTMLInputElement;
+    // Already editing — allow normal text selection.
+    if (document.activeElement === input) return;
+
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let dragged = false;
+    const threshold = 4;
+
+    const onMove = (ev: MouseEvent) => {
+      if (
+        Math.abs(ev.clientX - startX) > threshold ||
+        Math.abs(ev.clientY - startY) > threshold
+      ) {
+        dragged = true;
+        cleanup();
+        getCurrentWindow().startDragging();
+      }
+    };
+
+    const onUp = () => {
+      cleanup();
+      if (!dragged) {
+        input.focus();
+        input.select();
+      }
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
 
   function isCompleted(item: StickyTaskItem) {
@@ -225,7 +287,7 @@
       const persistGeometry = async () => {
         if (!id) return;
         const pos = await win.outerPosition();
-        const size = await win.outerSize();
+        const size = await win.innerSize();
         const factor = await win.scaleFactor();
         await invoke('update_sticky_geometry', {
           id,
@@ -263,6 +325,7 @@
     <input
       class="title"
       bind:value={title}
+      onmousedown={onTitleMouseDown}
       oninput={queueRename}
       onfocus={onFocus}
       onblur={onBlur}
@@ -272,8 +335,8 @@
       <button
         class="icon chrome"
         title={pinMode === 'always_on_top'
-          ? 'Always on top (click for desktop embed)'
-          : 'Desktop embed (click for always on top)'}
+          ? 'Always on top (click for desktop mode)'
+          : 'Desktop mode — behind other windows (click for always on top)'}
         onclick={togglePin}
       >
         {#if pinMode === 'always_on_top'}
@@ -419,6 +482,23 @@
   {#if error}
     <div class="sticky-error">{error}</div>
   {/if}
+
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle n" onmousedown={(e) => startResize(e, 'North')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle s" onmousedown={(e) => startResize(e, 'South')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle e" onmousedown={(e) => startResize(e, 'East')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle w" onmousedown={(e) => startResize(e, 'West')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle ne" onmousedown={(e) => startResize(e, 'NorthEast')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle nw" onmousedown={(e) => startResize(e, 'NorthWest')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle se" onmousedown={(e) => startResize(e, 'SouthEast')}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="resize-handle sw" onmousedown={(e) => startResize(e, 'SouthWest')}></div>
 </div>
 
 <style>
@@ -501,6 +581,11 @@
     font-size: 0.95rem;
     outline: none;
     min-width: 0;
+    cursor: grab;
+  }
+
+  .title:focus {
+    cursor: text;
   }
 
   .title::placeholder {
@@ -695,5 +780,74 @@
     border-radius: 6px;
     padding: 6px 8px;
     font-size: 0.75rem;
+  }
+
+  .resize-handle {
+    position: absolute;
+    z-index: 5;
+  }
+
+  .resize-handle.n {
+    top: 0;
+    left: 10px;
+    right: 10px;
+    height: 6px;
+    cursor: n-resize;
+  }
+
+  .resize-handle.s {
+    bottom: 0;
+    left: 10px;
+    right: 10px;
+    height: 6px;
+    cursor: s-resize;
+  }
+
+  .resize-handle.e {
+    top: 10px;
+    right: 0;
+    bottom: 10px;
+    width: 6px;
+    cursor: e-resize;
+  }
+
+  .resize-handle.w {
+    top: 10px;
+    left: 0;
+    bottom: 10px;
+    width: 6px;
+    cursor: w-resize;
+  }
+
+  .resize-handle.ne {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    cursor: ne-resize;
+  }
+
+  .resize-handle.nw {
+    top: 0;
+    left: 0;
+    width: 12px;
+    height: 12px;
+    cursor: nw-resize;
+  }
+
+  .resize-handle.se {
+    bottom: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    cursor: se-resize;
+  }
+
+  .resize-handle.sw {
+    bottom: 0;
+    left: 0;
+    width: 12px;
+    height: 12px;
+    cursor: sw-resize;
   }
 </style>
