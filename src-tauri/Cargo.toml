@@ -1,0 +1,36 @@
+[package]
+name = "keepy-note"
+version = "0.1.0"
+description = "Lightweight desktop sticky notes backed by Google Tasks"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+name = "keepy_note_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+oauth2 = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+keyring = { version = "3", features = ["windows-native"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+parking_lot = "0.12"
+open = "5"
+
+[target.'cfg(windows)'.dependencies]
+# SetLayeredWindowAttributes / COLORREF used by desktop embed.
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Graphics_Gdi",
+] }
