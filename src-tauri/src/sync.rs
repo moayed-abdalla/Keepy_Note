@@ -1,4 +1,5 @@
 use crate::google_tasks::{tasks_fingerprint, TasksClient};
+use crate::sticky_tray::{self, StickyTrayMap};
 use crate::store::{AppStore, StickyNoteState};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -12,6 +13,7 @@ pub struct SyncEngine {
     store: Arc<Mutex<AppStore>>,
     store_path: std::path::PathBuf,
     editing: Arc<Mutex<HashMap<String, bool>>>,
+    sticky_trays: StickyTrayMap,
 }
 
 impl SyncEngine {
@@ -19,12 +21,14 @@ impl SyncEngine {
         tasks: Arc<TasksClient>,
         store: Arc<Mutex<AppStore>>,
         store_path: std::path::PathBuf,
+        sticky_trays: StickyTrayMap,
     ) -> Self {
         Self {
             tasks,
             store,
             store_path,
             editing: Arc::new(Mutex::new(HashMap::new())),
+            sticky_trays,
         }
     }
 
@@ -69,6 +73,7 @@ impl SyncEngine {
                         let mut store = self.store.lock();
                         store.stickies.retain(|s| s.id != sticky.id);
                         store.save(&self.store_path)?;
+                        sticky_tray::remove(&self.sticky_trays, &sticky.id);
                         if let Some(w) = app.get_webview_window(&format!("sticky-{}", sticky.id)) {
                             let _ = w.close();
                         }

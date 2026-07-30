@@ -14,11 +14,12 @@
       {
         "label": "main",
         "title": "Keepy Note",
-        "width": 1,
-        "height": 1,
+        "width": 440,
+        "height": 720,
         "visible": false,
-        "decorations": false,
-        "skipTaskbar": true
+        "decorations": true,
+        "resizable": true,
+        "skipTaskbar": false
       }
     ],
     "security": {

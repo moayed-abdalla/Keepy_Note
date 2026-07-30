@@ -2,6 +2,7 @@ mod credentials;
 mod desktop_embed;
 mod google_auth;
 mod google_tasks;
+mod sticky_tray;
 mod store;
 mod sync;
 
@@ -9,7 +10,9 @@ use credentials::GoogleCredentials;
 use google_auth::{AuthState, AuthStatus};
 use google_tasks::{tasks_fingerprint, TaskList, TasksClient};
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::sync::Arc;
+use sticky_tray::StickyTrayMap;
 use store::{store_path, AppSettings, AppStore, PinMode, StickyNoteState, StickyTaskItem};
 use sync::SyncEngine;
 use tauri::{
@@ -26,6 +29,7 @@ pub struct AppState {
     pub store: Arc<Mutex<AppStore>>,
     pub store_path: std::path::PathBuf,
     pub sync: Arc<SyncEngine>,
+    pub sticky_trays: StickyTrayMap,
 }
 
 #[tauri::command]
@@ -549,18 +553,33 @@ async fn update_sticky_geometry(
 
 #[tauri::command]
 async fn update_sticky_color(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
     color: String,
 ) -> Result<(), String> {
-    let mut store = state.store.lock();
-    let sticky = store
-        .stickies
-        .iter_mut()
-        .find(|s| s.id == id)
-        .ok_or_else(|| "Sticky not found".to_string())?;
-    sticky.color = color;
-    store.save(&state.store_path)
+    let sticky = {
+        let mut store = state.store.lock();
+        let sticky = store
+            .stickies
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| "Sticky not found".to_string())?;
+        sticky.color = color;
+        let cloned = sticky.clone();
+        store.save(&state.store_path)?;
+        cloned
+    };
+
+    let trays = state.sticky_trays.clone();
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(e) = sticky_tray::create_or_update(&app2, &trays, &sticky) {
+            eprintln!("update sticky tray color: {e}");
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -624,6 +643,7 @@ async fn unpin_sticky(app: AppHandle, state: State<'_, AppState>, id: String) ->
         store.stickies.retain(|s| s.id != id);
         store.save(&state.store_path)?;
     }
+    sticky_tray::remove(&state.sticky_trays, &id);
     if let Some(win) = app.get_webview_window(&format!("sticky-{id}")) {
         let _ = win.close();
     }
@@ -654,9 +674,13 @@ async fn open_sticky(
     // Creating WebView windows from an async command can deadlock on Windows.
     // Schedule on the main thread instead.
     let app2 = app.clone();
+    let trays = state.sticky_trays.clone();
     app.run_on_main_thread(move || {
         if let Err(e) = open_sticky_window(&app2, &sticky) {
             eprintln!("open_sticky: {e}");
+        }
+        if let Err(e) = sticky_tray::create_or_update(&app2, &trays, &sticky) {
+            eprintln!("open_sticky tray: {e}");
         }
     })
     .map_err(|e| e.to_string())?;
@@ -664,13 +688,34 @@ async fn open_sticky(
 }
 
 #[tauri::command]
-async fn open_picker(app: AppHandle) -> Result<(), String> {
-    open_picker_window(&app)
+async fn ensure_sticky_tray(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let sticky = {
+        let store = state.store.lock();
+        store
+            .stickies
+            .iter()
+            .find(|s| s.id == id)
+            .cloned()
+            .ok_or_else(|| "Sticky not found".to_string())?
+    };
+    let trays = state.sticky_trays.clone();
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(e) = sticky_tray::create_or_update(&app2, &trays, &sticky) {
+            eprintln!("ensure_sticky_tray: {e}");
+        }
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
-async fn open_settings(app: AppHandle) -> Result<(), String> {
-    open_settings_window(&app)
+async fn open_main(app: AppHandle) -> Result<(), String> {
+    open_main_window(&app)
 }
 
 fn open_sticky_window(app: &AppHandle, sticky: &StickyNoteState) -> Result<(), String> {
@@ -709,32 +754,23 @@ fn open_sticky_window(app: &AppHandle, sticky: &StickyNoteState) -> Result<(), S
     Ok(())
 }
 
-fn open_picker_window(app: &AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("picker") {
-        // Reload so a previous hung/busy pin attempt can't leave the UI unresponsive.
-        let _ = win.eval("window.location.replace('/picker')");
+/// Public for sticky_tray::show_sticky re-open path.
+pub(crate) fn open_sticky_window_for_tray(
+    app: &AppHandle,
+    sticky: &StickyNoteState,
+) -> Result<(), String> {
+    open_sticky_window(app, sticky)
+}
+
+fn open_main_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
         let _ = win.set_focus();
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("/picker".into()))
-        .title("Add Sticky List")
-        .inner_size(420.0, 560.0)
-        .resizable(true)
-        .always_on_top(true)
-        .build()
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn open_settings_window(app: &AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("settings") {
-        let _ = win.set_focus();
-        return Ok(());
-    }
-    WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("/settings".into()))
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("/".into()))
         .title("Keepy Note")
-        .inner_size(440.0, 560.0)
+        .inner_size(440.0, 720.0)
         .resizable(true)
         .build()
         .map_err(|e| e.to_string())?;
@@ -745,15 +781,17 @@ fn restore_stickies(app: &AppHandle, state: &AppState) {
     let stickies = state.store.lock().stickies.clone();
     for sticky in stickies {
         let _ = open_sticky_window(app, &sticky);
+        if let Err(e) = sticky_tray::create_or_update(app, &state.sticky_trays, &sticky) {
+            eprintln!("restore sticky tray: {e}");
+        }
     }
 }
 
 fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let add = MenuItem::with_id(app, "add", "Add Sticky List", true, None::<&str>)?;
+    let open = MenuItem::with_id(app, "open", "Open Keepy Note", true, None::<&str>)?;
     let sync = MenuItem::with_id(app, "sync", "Sync Now", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&add, &sync, &settings, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &sync, &quit])?;
 
     let icon = app
         .default_window_icon()
@@ -766,8 +804,8 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .show_menu_on_left_click(false)
         .tooltip("Keepy Note — right-click for menu")
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "add" => {
-                let _ = open_picker_window(app);
+            "open" => {
+                let _ = open_main_window(app);
             }
             "sync" => {
                 let app2 = app.clone();
@@ -776,9 +814,6 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         let _ = state.sync.sync_now(&app2).await;
                     }
                 });
-            }
-            "settings" => {
-                let _ = open_settings_window(app);
             }
             "quit" => {
                 app.exit(0);
@@ -793,7 +828,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             } = event
             {
                 let app = tray.app_handle();
-                let _ = open_picker_window(app);
+                let _ = open_main_window(app);
             }
         })
         .build(app)?;
@@ -845,7 +880,13 @@ pub fn run() {
             let path = store_path(data_dir);
             let loaded = AppStore::load(&path);
             let store = Arc::new(Mutex::new(loaded));
-            let sync = Arc::new(SyncEngine::new(tasks.clone(), store.clone(), path.clone()));
+            let sticky_trays: StickyTrayMap = Arc::new(Mutex::new(HashMap::new()));
+            let sync = Arc::new(SyncEngine::new(
+                tasks.clone(),
+                store.clone(),
+                path.clone(),
+                sticky_trays.clone(),
+            ));
 
             let state = AppState {
                 auth: auth.clone(),
@@ -853,13 +894,10 @@ pub fn run() {
                 store,
                 store_path: path,
                 sync: sync.clone(),
+                sticky_trays,
             };
 
-            // Hide the default main window — tray-only presence
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = main.hide();
-            }
-
+            // Show the unified main window on launch.
             setup_tray(app.handle())?;
             restore_stickies(app.handle(), &state);
             sync.start(app.handle().clone());
@@ -873,15 +911,9 @@ pub fn run() {
                 }
             }
 
-            let signed_in = state.auth.is_signed_in();
-            let has_stickies = !state.store.lock().stickies.is_empty();
             app.manage(state);
 
-            // Always show a visible window on launch so Start Menu launches aren't "invisible".
-            let _ = open_settings_window(app.handle());
-            if signed_in && !has_stickies {
-                let _ = open_picker_window(app.handle());
-            }
+            let _ = open_main_window(app.handle());
 
             Ok(())
         })
@@ -909,8 +941,8 @@ pub fn run() {
             unpin_sticky,
             sync_now,
             open_sticky,
-            open_picker,
-            open_settings,
+            ensure_sticky_tray,
+            open_main,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Keepy Note")
