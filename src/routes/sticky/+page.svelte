@@ -8,7 +8,15 @@
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
   type PinMode = 'always_on_top' | 'desktop_embed';
-  type ThemeKey = 'purple' | 'green' | 'navy' | 'graphite';
+  type ThemeKey =
+    | 'red'
+    | 'orange'
+    | 'yellow'
+    | 'green'
+    | 'navy'
+    | 'indigo'
+    | 'purple'
+    | 'graphite';
 
   type StickyTaskItem = {
     id: string;
@@ -25,12 +33,26 @@
     pin_mode: PinMode;
   };
 
-  const THEME_KEYS: ThemeKey[] = ['purple', 'green', 'navy', 'graphite'];
+  // Rainbow order + grey. Keys `navy` / `purple` / `graphite` kept for saved notes.
+  const THEME_KEYS: ThemeKey[] = [
+    'red',
+    'orange',
+    'yellow',
+    'green',
+    'navy',
+    'indigo',
+    'purple',
+    'graphite'
+  ];
   const THEMES: Record<ThemeKey, { label: string; preview: string }> = {
-    purple: { label: 'Dark purple', preview: 'linear-gradient(180deg, #2E2040, #241832)' },
-    green: { label: 'Dark green', preview: 'linear-gradient(180deg, #1C3327, #14261C)' },
-    navy: { label: 'Navy blue', preview: 'linear-gradient(180deg, #1C2B45, #141F33)' },
-    graphite: { label: 'Dark grey', preview: 'linear-gradient(180deg, #2A2D31, #1E2023)' }
+    red: { label: 'Red', preview: 'linear-gradient(180deg, #3D1C22, #2A1418)' },
+    orange: { label: 'Orange', preview: 'linear-gradient(180deg, #3D2918, #2A1C12)' },
+    yellow: { label: 'Yellow', preview: 'linear-gradient(180deg, #363018, #262210)' },
+    green: { label: 'Green', preview: 'linear-gradient(180deg, #1C3327, #14261C)' },
+    navy: { label: 'Blue', preview: 'linear-gradient(180deg, #1C2B45, #141F33)' },
+    indigo: { label: 'Indigo', preview: 'linear-gradient(180deg, #222240, #18182E)' },
+    purple: { label: 'Violet', preview: 'linear-gradient(180deg, #2E2040, #241832)' },
+    graphite: { label: 'Grey', preview: 'linear-gradient(180deg, #2A2D31, #1E2023)' }
   };
   const DEFAULT_THEME: ThemeKey = 'navy';
   const flipDurationMs = 180;
@@ -508,13 +530,33 @@
     overflow: hidden;
   }
 
-  .sticky[data-theme='purple'] {
-    --note-bg: #241832;
-    --note-bg-raised: #2e2040;
-    --note-text: #d3bef0;
-    --note-muted: #9c86bc;
+  .sticky[data-theme='red'] {
+    --note-bg: #2a1418;
+    --note-bg-raised: #3d1c22;
+    --note-text: #f0b8c0;
+    --note-muted: #bc8088;
     --note-line: rgba(255, 255, 255, 0.1);
-    --note-accent: #c4a6f5;
+    --note-accent: #ef8a96;
+    --note-hover: rgba(255, 255, 255, 0.06);
+  }
+
+  .sticky[data-theme='orange'] {
+    --note-bg: #2a1c12;
+    --note-bg-raised: #3d2918;
+    --note-text: #f0c8a0;
+    --note-muted: #bc9870;
+    --note-line: rgba(255, 255, 255, 0.1);
+    --note-accent: #f0a86a;
+    --note-hover: rgba(255, 255, 255, 0.06);
+  }
+
+  .sticky[data-theme='yellow'] {
+    --note-bg: #262210;
+    --note-bg-raised: #363018;
+    --note-text: #e8dc9a;
+    --note-muted: #b0a468;
+    --note-line: rgba(255, 255, 255, 0.1);
+    --note-accent: #e8d46a;
     --note-hover: rgba(255, 255, 255, 0.06);
   }
 
@@ -535,6 +577,26 @@
     --note-muted: #7f97bc;
     --note-line: rgba(255, 255, 255, 0.1);
     --note-accent: #8fb4ef;
+    --note-hover: rgba(255, 255, 255, 0.06);
+  }
+
+  .sticky[data-theme='indigo'] {
+    --note-bg: #18182e;
+    --note-bg-raised: #222240;
+    --note-text: #b8b8e8;
+    --note-muted: #8484b8;
+    --note-line: rgba(255, 255, 255, 0.1);
+    --note-accent: #9a9aef;
+    --note-hover: rgba(255, 255, 255, 0.06);
+  }
+
+  .sticky[data-theme='purple'] {
+    --note-bg: #241832;
+    --note-bg-raised: #2e2040;
+    --note-text: #d3bef0;
+    --note-muted: #9c86bc;
+    --note-line: rgba(255, 255, 255, 0.1);
+    --note-accent: #c4a6f5;
     --note-hover: rgba(255, 255, 255, 0.06);
   }
 
@@ -658,13 +720,14 @@
 
   .color-pop {
     display: flex;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px;
     padding: 0 10px 10px;
   }
 
   .swatch {
-    width: 24px;
-    height: 24px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
     border: 2px solid rgba(255, 255, 255, 0.18);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
