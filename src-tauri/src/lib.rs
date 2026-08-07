@@ -15,11 +15,7 @@ use std::sync::Arc;
 use sticky_tray::StickyTrayMap;
 use store::{store_path, AppSettings, AppStore, PinMode, StickyNoteState, StickyTaskItem};
 use sync::SyncEngine;
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder,
-};
+use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_autostart::MacosLauncher;
 use uuid::Uuid;
 
@@ -762,7 +758,7 @@ pub(crate) fn open_sticky_window_for_tray(
     open_sticky_window(app, sticky)
 }
 
-fn open_main_window(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn open_main_window(app: &AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
         let _ = win.set_focus();
@@ -787,65 +783,16 @@ fn restore_stickies(app: &AppHandle, state: &AppState) {
     }
 }
 
-fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let open = MenuItem::with_id(app, "open", "Open Keepy Note", true, None::<&str>)?;
-    let sync = MenuItem::with_id(app, "sync", "Sync Now", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &sync, &quit])?;
-
-    let icon = app
-        .default_window_icon()
-        .cloned()
-        .ok_or_else(|| "Missing app icon for system tray".to_string())?;
-
-    let tray = TrayIconBuilder::new()
-        .icon(icon)
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .tooltip("Keepy Note — right-click for menu")
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => {
-                let _ = open_main_window(app);
-            }
-            "sync" => {
-                let app2 = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    if let Some(state) = app2.try_state::<AppState>() {
-                        let _ = state.sync.sync_now(&app2).await;
-                    }
-                });
-            }
-            "quit" => {
-                app.exit(0);
-            }
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click {
-                button: MouseButton::Left,
-                button_state: MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let app = tray.app_handle();
-                let _ = open_main_window(app);
-            }
-        })
-        .build(app)?;
-
-    // Keep the tray alive for the whole app lifetime (dropping it removes the icon
-    // and can make a tray-only app look like it never started).
-    app.manage(tray);
-    Ok(())
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            let _ = open_main_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            Some(vec![]),
+            Some(vec!["--autostart".into()]),
         ))
         .setup(|app| {
             let data_dir = app
@@ -897,12 +844,11 @@ pub fn run() {
                 sticky_trays,
             };
 
-            // Show the unified main window on launch.
-            setup_tray(app.handle())?;
+            // Lists restore on every launch; main hub only on interactive (non-boot) launch.
             restore_stickies(app.handle(), &state);
             sync.start(app.handle().clone());
 
-            // Apply autostart preference
+            // Apply autostart preference (re-enable so registry picks up --autostart args).
             {
                 use tauri_plugin_autostart::ManagerExt;
                 let autostart = app.autolaunch();
@@ -913,7 +859,10 @@ pub fn run() {
 
             app.manage(state);
 
-            let _ = open_main_window(app.handle());
+            let from_autostart = std::env::args().any(|a| a == "--autostart");
+            if !from_autostart {
+                let _ = open_main_window(app.handle());
+            }
 
             Ok(())
         })
@@ -947,7 +896,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Keepy Note")
         .run(|_app_handle, event| {
-            // Stay alive in the tray when windows close; still allow Quit.
+            // Stay alive when windows close (list trays keep the process); still allow Quit.
             if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
                 if code.is_none() {
                     api.prevent_exit();

@@ -327,7 +327,7 @@
 
     <p class="muted">
       Pin a Google Tasks list as a sticky checklist. Stickies stay open when you close this window —
-      use the tray icons to manage them, or Quit from the Keepy Note tray menu.
+      use each list’s colored tray icon to show, close, or quit. Relaunch Keepy Note to open this window again.
     </p>
 
     {#if pinError}

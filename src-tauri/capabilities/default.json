@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for Keepy Note windows",
-  "windows": ["main", "settings", "picker", "sticky-*"],
+  "windows": ["main", "sticky-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

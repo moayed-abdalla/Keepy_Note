@@ -97,6 +97,14 @@ pub fn create_or_update(
         None::<&str>,
     )
     .map_err(|e| e.to_string())?;
+    let open_main = MenuItem::with_id(
+        app,
+        format!("open-main-{sticky_id}"),
+        "Open Keepy Note",
+        true,
+        None::<&str>,
+    )
+    .map_err(|e| e.to_string())?;
     let close = MenuItem::with_id(
         app,
         format!("close-{sticky_id}"),
@@ -105,7 +113,15 @@ pub fn create_or_update(
         None::<&str>,
     )
     .map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(app, &[&show, &close]).map_err(|e| e.to_string())?;
+    let quit = MenuItem::with_id(
+        app,
+        format!("quit-{sticky_id}"),
+        "Quit",
+        true,
+        None::<&str>,
+    )
+    .map_err(|e| e.to_string())?;
+    let menu = Menu::with_items(app, &[&show, &open_main, &close, &quit]).map_err(|e| e.to_string())?;
 
     let tray_id = format!("sticky-tray-{sticky_id}");
     let tray = TrayIconBuilder::with_id(&tray_id)
@@ -117,8 +133,12 @@ pub fn create_or_update(
             let id_str = event.id.as_ref();
             if id_str == format!("show-{sticky_id_menu}") {
                 show_sticky(app, &sticky_id_menu);
+            } else if id_str == format!("open-main-{sticky_id_menu}") {
+                let _ = crate::open_main_window(app);
             } else if id_str == format!("close-{sticky_id_menu}") {
                 close_sticky(app, &sticky_id_menu);
+            } else if id_str == format!("quit-{sticky_id_menu}") {
+                app.exit(0);
             }
         })
         .on_tray_icon_event(move |tray, event| {
