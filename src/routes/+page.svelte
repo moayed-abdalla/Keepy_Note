@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { getVersion } from '@tauri-apps/api/app';
   import { invoke } from '@tauri-apps/api/core';
   import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+  import { check } from '@tauri-apps/plugin-updater';
+  import { relaunch } from '@tauri-apps/plugin-process';
 
   type AuthStatus = { signed_in: boolean };
   type AppSettings = { poll_interval_secs: number; autostart: boolean };
@@ -27,6 +30,7 @@
   let authBusy = $state(false);
   let message = $state('');
   let authError = $state('');
+  let appVersion = $state('');
 
   let tab = $state<'create' | 'existing'>('create');
   let title = $state('');
@@ -101,6 +105,28 @@
       message = 'Synced.';
     } catch (e) {
       authError = String(e);
+    } finally {
+      authBusy = false;
+    }
+  }
+
+  async function checkForUpdates() {
+    authBusy = true;
+    authError = '';
+    message = 'Checking for updates…';
+    try {
+      const update = await check();
+      if (!update) {
+        message = "You're on the latest version.";
+        return;
+      }
+      message = `Downloading update ${update.version}…`;
+      await update.downloadAndInstall();
+      message = 'Update installed. Restarting…';
+      await relaunch();
+    } catch (e) {
+      authError = String(e);
+      message = '';
     } finally {
       authBusy = false;
     }
@@ -240,13 +266,21 @@
 
   onMount(() => {
     refreshAuth().catch((e) => (authError = String(e)));
+    getVersion()
+      .then((v) => (appVersion = v))
+      .catch(() => (appVersion = ''));
   });
 </script>
 
 <div class="app-shell">
   <div class="panel stack">
     <div class="header-row">
-      <h1>Keepy Note</h1>
+      <div class="title-block">
+        <h1>Keepy Note</h1>
+        {#if appVersion}
+          <div class="muted version-label">v{appVersion}</div>
+        {/if}
+      </div>
       {#if status.signed_in}
         <div class="profile-wrap">
           <button
@@ -293,6 +327,8 @@
                 <button class="btn" disabled={authBusy} onclick={syncNow}>Sync now</button>
               </div>
 
+              <button class="btn" disabled={authBusy} onclick={checkForUpdates}>Check for updates</button>
+
               <button class="btn danger" disabled={authBusy} onclick={signOut}>Sign out</button>
 
               {#if message}
@@ -304,6 +340,8 @@
             </div>
           {/if}
         </div>
+      {:else}
+        <button class="btn" disabled={authBusy} onclick={checkForUpdates}>Check for updates</button>
       {/if}
     </div>
 
@@ -316,11 +354,11 @@
           </div>
           <button class="btn primary" disabled={authBusy} onclick={signIn}>Sign in with Google</button>
         </div>
-        {#if authError}
-          <div class="error">{authError}</div>
-        {/if}
         {#if message}
           <div class="muted">{message}</div>
+        {/if}
+        {#if authError}
+          <div class="error">{authError}</div>
         {/if}
       </div>
     {/if}
@@ -435,8 +473,18 @@
     gap: 12px;
   }
 
+  .title-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
   .header-row h1 {
     margin: 0;
+  }
+
+  .version-label {
+    font-size: 0.85rem;
   }
 
   .profile-wrap {

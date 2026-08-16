@@ -9,3 +9,6 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 src-tauri/google_credentials.json
+src-tauri/updater.key
+# Public key is committed; private key must never be.
+latest.json
