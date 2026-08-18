@@ -301,22 +301,17 @@ impl TasksClient {
         task_id: &str,
         previous: Option<&str>,
     ) -> Result<Task, String> {
-        let token = self.auth.access_token().await?;
         let mut url = append_path_segment(&format!("{TASKS_BASE}/lists/"), task_list_id)?;
         url.push_str("/tasks/");
         let mut url = append_path_segment(&url, task_id)?;
         url.push_str("/move");
-        // Google rejects body-less POSTs with 411 Length Required; send an empty body.
-        let mut req = self
-            .http
-            .post(&url)
-            .bearer_auth(token)
-            .header(reqwest::header::CONTENT_LENGTH, "0")
-            .body("");
         if let Some(prev) = previous {
-            req = req.query(&[("previous", prev)]);
+            let mut parsed = Url::parse(&url).map_err(|e| e.to_string())?;
+            parsed.query_pairs_mut().append_pair("previous", prev);
+            url = parsed.into();
         }
-        let resp = req.send().await.map_err(|e| e.to_string())?;
+        // Empty JSON body so the POST has Content-Length; Google returns 411 otherwise.
+        let resp = self.authorized_post(&url, &serde_json::json!({})).await?;
         if !resp.status().is_success() {
             return Err(format!(
                 "move task failed: {}",
